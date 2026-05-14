@@ -1,0 +1,35 @@
+<!-- Plugin Configuration File: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.xiaohunao.MinecraftDevelopmentToolkit</id>
+    <name>MinecraftDevelopmentToolkit</name>
+    <vendor url="https://github.com/XiaoHuNao">XiaoHuNao</vendor>
+
+    <description><![CDATA[
+        Minecraft Development Toolkit
+    ]]></description>
+
+    <depends>com.intellij.modules.compose</depends>
+    <depends>com.intellij.java</depends>
+    <depends>org.jetbrains.kotlin</depends>
+
+    <resource-bundle>messages.MyMessageBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="MyToolWindow" factoryClass="com.xiaohunao.minecraftdevelopmenttoolkit.MyToolWindowFactory"
+                    icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+        <applicationService serviceImplementation="com.xiaohunao.minecraftdevelopmenttoolkit.settings.MDTSettings"/>
+        <applicationService serviceImplementation="com.xiaohunao.minecraftdevelopmenttoolkit.service.MDTConnectionState"/>
+        <applicationConfigurable parentId="tools"
+                                instance="com.xiaohunao.minecraftdevelopmenttoolkit.settings.MDTSettingsConfigurable"
+                                id="com.xiaohunao.mdt.settings"
+                                displayName="%settings.display.name"/>
+        <statusBarWidgetFactory id="MDTStatusBarWidget"
+                               implementation="com.xiaohunao.minecraftdevelopmenttoolkit.statusbar.MDTStatusBarWidgetFactory"
+                               order="after NotificationWidget"/>
+        <notificationGroup id="MDT Notifications" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
