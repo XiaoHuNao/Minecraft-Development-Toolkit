@@ -1,0 +1,3 @@
+[submodule "MDT Companion"]
+	path = MDT Companion
+	url = https://github.com/XiaoHuNao/MDT-Companion.git
