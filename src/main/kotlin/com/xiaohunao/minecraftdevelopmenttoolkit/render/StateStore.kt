@@ -17,6 +17,10 @@ class StateStore(private val tabId: String) {
     fun getVersion(): Int = version
 
     fun applySnapshot(newState: JsonObject, newVersion: Int) {
+        if (state == newState) {
+            version = newVersion
+            return // 状态未变化，跳过通知
+        }
         state = newState.deepCopy()
         version = newVersion
         notifyAllListeners()
@@ -27,27 +31,56 @@ class StateStore(private val tabId: String) {
             return false // Version conflict, need full snapshot
         }
 
+        var hasEffectiveChange = false
         for (op in patch.patches) {
             try {
-                applyOperation(op.op, op.path, op.value)
+                val changed = applyOperation(op.op, op.path, op.value)
+                if (changed) hasEffectiveChange = true
             } catch (e: Exception) {
                 Logger.getInstance(StateStore::class.java).warn("Failed to apply patch: ${e.message}", e)
                 return false // Patch application failed
             }
         }
         version++
-        notifyAllListeners()
+        if (hasEffectiveChange) {
+            notifyAllListeners()
+        }
         return true
     }
 
-    private fun applyOperation(op: String, path: String, value: JsonElement?) {
+    /**
+     * 应用单个 patch operation。
+     * @return true 如果实际发生了状态变更，false 如果值相同被跳过
+     */
+    private fun applyOperation(op: String, path: String, value: JsonElement?): Boolean {
         val segments = path.trimStart('/').split("/")
-        if (segments.isEmpty() || segments[0].isEmpty()) return
+        if (segments.isEmpty() || segments[0].isEmpty()) return false
 
-        when (op) {
-            "replace" -> setAtPath(segments, value)
-            "add" -> addAtPath(segments, value)
-            "remove" -> removeAtPath(segments)
+        return when (op) {
+            "replace" -> {
+                if (hasSameValueAtPath(segments, value)) {
+                    false // 值相同，跳过
+                } else {
+                    setAtPath(segments, value)
+                    true
+                }
+            }
+            "add" -> {
+                if (hasSameValueAtPath(segments, value)) {
+                    false // 值相同，跳过
+                } else {
+                    addAtPath(segments, value)
+                    true
+                }
+            }
+            "remove" -> {
+                if (valueExistsAtPath(segments)) {
+                    removeAtPath(segments)
+                    true
+                } else {
+                    false // 路径不存在，无需移除
+                }
+            }
             else -> throw IllegalArgumentException("Unsupported patch operation: ${op}")
         }
     }
@@ -138,6 +171,35 @@ class StateStore(private val tabId: String) {
     fun getInt(path: String): Int? {
         val el = getValue(path)
         return if (el != null && el.isJsonPrimitive) el.asInt else null
+    }
+
+    /**
+     * 检查指定路径的值是否与给定值相同（使用 JsonElement.equals 比较）。
+     */
+    private fun hasSameValueAtPath(segments: List<String>, value: JsonElement?): Boolean {
+        val current = getValueAtPath(segments)
+        if (current == null && value == null) return true
+        if (current == null || value == null) return false
+        return current == value
+    }
+
+    /**
+     * 检查指定路径是否存在值。
+     */
+    private fun valueExistsAtPath(segments: List<String>): Boolean {
+        return getValueAtPath(segments) != null
+    }
+
+    /**
+     * 获取指定路径的 JsonElement 值（支持 JSON Pointer 路径）。
+     */
+    private fun getValueAtPath(segments: List<String>): JsonElement? {
+        var current: JsonElement? = state
+        for (seg in segments) {
+            if (current == null || !current.isJsonObject) return null
+            current = current.asJsonObject.get(seg)
+        }
+        return current
     }
 
     fun getDouble(path: String): Double? {
