@@ -34,10 +34,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
         var lastProtocolVersion: String = ""
     )
 
-    /**
-     * Represents a connection request submitted by an external component
-     * (e.g., the StatusBar widget's Connect dialog).
-     */
     data class ConnectionRequest(
         val host: String,
         val port: Int,
@@ -45,8 +41,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
     )
 
     private var persistent = Persistent()
-
-    // ---- Runtime (non-persistent) state ----
 
     @Volatile
     var connectionState: ConnectionState = ConnectionState.DISCONNECTED
@@ -68,8 +62,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
     @Volatile
     var pendingConnection: ConnectionRequest? = null
         private set
-
-    // ---- Listener mechanism ----
 
     fun interface StateChangeListener {
         fun onConnectionStateChanged()
@@ -93,11 +85,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
         }
     }
 
-    // ---- Mutators ----
-
-    /**
-     * Update the connection state. Notifies all listeners on the EDT.
-     */
     fun setConnectionState(state: ConnectionState) {
         if (this.connectionState == state && state != ConnectionState.DISCONNECTED) return
         this.connectionState = state
@@ -108,10 +95,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
         fireStateChanged()
     }
 
-    /**
-     * Update server info that arrives in the HELLO message.
-     * Automatically sets connection state to [ConnectionState.CONNECTED].
-     */
     fun setServerInfo(name: String, protocolVer: String) {
         this.serverName = name
         this.protocolVersion = protocolVer
@@ -121,30 +104,18 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
         fireStateChanged()
     }
 
-    /**
-     * Submit a connection request from an external component.
-     * Sets state to CONNECTING and notifies listeners so the
-     * ToolWindow can pick up the request.
-     */
     fun requestConnection(host: String, port: Int, token: String) {
         pendingConnection = ConnectionRequest(host, port, token)
         connectionState = ConnectionState.CONNECTING
         fireStateChanged()
     }
 
-    /**
-     * Atomically retrieve and clear the pending connection request.
-     * Returns null if no request is pending.
-     */
     fun consumePendingConnection(): ConnectionRequest? {
         val request = pendingConnection
         pendingConnection = null
         return request
     }
 
-    /**
-     * Reset to fully disconnected. Called on explicit disconnect or failure.
-     */
     fun reset() {
         connectionState = ConnectionState.DISCONNECTED
         serverName = ""
@@ -152,8 +123,6 @@ class MDTConnectionState : PersistentStateComponent<MDTConnectionState.Persisten
         pendingConnection = null
         fireStateChanged()
     }
-
-    // ---- PersistentStateComponent ----
 
     override fun getState() = persistent
     override fun loadState(state: Persistent) {

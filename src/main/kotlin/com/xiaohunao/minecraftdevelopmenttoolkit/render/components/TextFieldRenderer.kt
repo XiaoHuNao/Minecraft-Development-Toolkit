@@ -10,6 +10,7 @@ import com.xiaohunao.minecraftdevelopmenttoolkit.render.*
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextField
 import androidx.compose.foundation.text.input.TextFieldState
@@ -25,6 +26,7 @@ val TextFieldRenderer: @Composable (RendererContext) -> Unit = { context ->
     val valueBinding = context.node.bindings.find { it.prop == "value" }
     val state = remember { TextFieldState() }
     var isSyncingFromServer by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // Subscribe to server state updates
     if (valueBinding != null) {
@@ -33,8 +35,11 @@ val TextFieldRenderer: @Composable (RendererContext) -> Unit = { context ->
                 val newValue = el?.let { if (it.isJsonPrimitive) it.asString else it.toString() } ?: ""
                 if (newValue != state.text.toString()) {
                     isSyncingFromServer = true
-                    state.edit {
-                        replace(0, length, newValue)
+                    // Dispatch to Compose thread — listener fires from OkHttp callback
+                    scope.launch {
+                        state.edit {
+                            replace(0, length, newValue)
+                        }
                     }
                 }
             }

@@ -48,10 +48,6 @@ class StateStore(private val tabId: String) {
         return true
     }
 
-    /**
-     * 应用单个 patch operation。
-     * @return true 如果实际发生了状态变更，false 如果值相同被跳过
-     */
     private fun applyOperation(op: String, path: String, value: JsonElement?): Boolean {
         val segments = path.trimStart('/').split("/")
         if (segments.isEmpty() || segments[0].isEmpty()) return false
@@ -173,9 +169,6 @@ class StateStore(private val tabId: String) {
         return if (el != null && el.isJsonPrimitive) el.asInt else null
     }
 
-    /**
-     * 检查指定路径的值是否与给定值相同（使用 JsonElement.equals 比较）。
-     */
     private fun hasSameValueAtPath(segments: List<String>, value: JsonElement?): Boolean {
         val current = getValueAtPath(segments)
         if (current == null && value == null) return true
@@ -183,16 +176,10 @@ class StateStore(private val tabId: String) {
         return current == value
     }
 
-    /**
-     * 检查指定路径是否存在值。
-     */
     private fun valueExistsAtPath(segments: List<String>): Boolean {
         return getValueAtPath(segments) != null
     }
 
-    /**
-     * 获取指定路径的 JsonElement 值（支持 JSON Pointer 路径）。
-     */
     private fun getValueAtPath(segments: List<String>): JsonElement? {
         var current: JsonElement? = state
         for (seg in segments) {
@@ -224,7 +211,10 @@ class StateStore(private val tabId: String) {
     private fun notifyAllListeners() {
         for ((path, pathListeners) in listeners) {
             val value = getValue(path)
-            for (listener in pathListeners) {
+            // Snapshot to avoid ConcurrentModificationException when a
+            // DisposableEffect.onDispose unsubscribes during iteration
+            val snapshot = pathListeners.toList()
+            for (listener in snapshot) {
                 try { listener(value) } catch (_: Exception) {}
             }
         }

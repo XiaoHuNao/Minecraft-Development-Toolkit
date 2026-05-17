@@ -12,7 +12,6 @@ data class RendererContext(
     val renderEngine: RenderEngine? = null,
     val tabId: String = ""
 ) {
-    /** Render all children of this node */
     @Composable
     fun RenderChildren() {
         val engine = renderEngine ?: return

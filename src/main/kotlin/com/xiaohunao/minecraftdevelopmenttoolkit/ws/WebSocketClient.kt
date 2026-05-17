@@ -75,6 +75,9 @@ class WebSocketClient(
                             }
                         }
                         else -> {
+                            if (message.type == MessageType.COMMAND_SUGGEST_RESPONSE) {
+                                logger.info("WS received COMMAND_SUGGEST_RESPONSE")
+                            }
                             onMessage(message)
                         }
                     }

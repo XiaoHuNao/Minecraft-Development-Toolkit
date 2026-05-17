@@ -3,12 +3,9 @@ package com.xiaohunao.minecraftdevelopmenttoolkit
 import org.jetbrains.jewel.ui.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,16 +13,26 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.awt.SwingPanel
+import com.intellij.execution.filters.TextConsoleBuilderFactory
+import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.PopupStep
+import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.xiaohunao.mdt.protocol.*
+import java.awt.BorderLayout
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
+import javax.swing.JPanel
+import javax.swing.JTextField
 import com.xiaohunao.minecraftdevelopmenttoolkit.render.ComponentRegistry
 import com.xiaohunao.minecraftdevelopmenttoolkit.render.RenderEngine
 import com.xiaohunao.minecraftdevelopmenttoolkit.render.StateStore
 import com.xiaohunao.minecraftdevelopmenttoolkit.render.components.*
 import com.xiaohunao.minecraftdevelopmenttoolkit.service.ConsoleEntry
-import com.xiaohunao.minecraftdevelopmenttoolkit.service.ConsoleService
 import com.xiaohunao.minecraftdevelopmenttoolkit.service.MDTConnectionState
 import com.xiaohunao.minecraftdevelopmenttoolkit.service.NotificationService
 import com.xiaohunao.minecraftdevelopmenttoolkit.tab.TabContent
@@ -69,11 +76,10 @@ class MyToolWindowFactory : ToolWindowFactory {
             register("toolbarDecorator", ToolbarDecoratorRenderer)
         }
 
-        // Shared mutable state
         val connectionState = mutableStateOf(ConnectionState.DISCONNECTED)
         val serverInfo = mutableStateOf<ServerInfo?>(null)
         val serverTabs = mutableStateOf<List<TabDescriptor>>(emptyList())
-        val selectedTabId = mutableStateOf<String?>(null)
+        val selectedTabId = mutableStateOf<String?>("console")
         val renderTabs = mutableStateOf<Map<String, @Composable () -> Unit>>(emptyMap())
 
         val tabContents = mutableMapOf<String, TabContent>()
@@ -84,26 +90,109 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         val dispatcher = MessageDispatcher()
         val notificationService = NotificationService { wsClient }
-        val consoleService = ConsoleService()
         val mdtConnectionState = MDTConnectionState.getInstance()
+
+        // IDEA native ConsoleView for server logs
+        val consoleView = TextConsoleBuilderFactory.getInstance().createBuilder(project).console
+
+        // Console panel with command input field at the bottom
+        val consolePanel = JPanel(BorderLayout())
+        consolePanel.add(consoleView.component, BorderLayout.CENTER)
+
+        val commandField = JTextField()
+        commandField.toolTipText = "输入指令按 Enter 发送，按 Tab 补全"
+        commandField.setFocusTraversalKeysEnabled(false)
+
+        var currentPopup: com.intellij.openapi.ui.popup.JBPopup? = null
+        var pendingSuggestRequest: String? = null
+
+        val logger = com.intellij.openapi.diagnostic.Logger.getInstance(MyToolWindowFactory::class.java)
+
+        // Tab completion — send request to server for Brigadier-powered suggestions
+        commandField.addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                if (e.keyCode == KeyEvent.VK_TAB) {
+                    e.consume()
+                    val input = commandField.text
+                    val cursor = commandField.caretPosition
+                    logger.info("Tab pressed, input='$input', cursor=$cursor, connected=${wsClient?.isConnected()}")
+                    if (input.isNotEmpty() && wsClient?.isConnected() == true) {
+                        pendingSuggestRequest = input
+                        wsClient?.send(Message.createCommandSuggestRequest(input, cursor))
+                        logger.info("Sent COMMAND_SUGGEST_REQUEST")
+                    }
+                }
+            }
+        })
+
+        // Enter to send
+        commandField.addActionListener {
+            val command = commandField.text.trim()
+            if (command.isNotEmpty()) {
+                if (wsClient?.isConnected() == true) {
+                    wsClient?.send(Message.createCommandInput(command))
+                    consoleView.print("> $command\n", ConsoleViewContentType.NORMAL_OUTPUT)
+                } else {
+                    consoleView.print("[未连接] 无法发送指令\n", ConsoleViewContentType.ERROR_OUTPUT)
+                }
+                commandField.text = ""
+            }
+        }
+        consolePanel.add(commandField, BorderLayout.SOUTH)
 
         dispatcher.onNotification { message ->
             notificationService.handleNotification(message)
         }
 
-        dispatcher.onConsoleAppend { tabId, message ->
-            consoleService.appendLog(tabId, message)
+        dispatcher.onCommandSuggestResponse { message ->
+            val payload = message.payload
+            val suggestionsArr = payload.getAsJsonArray("suggestions")
+            val suggestions = suggestionsArr?.map { it.asString } ?: emptyList()
+            val start = payload.get("start")?.asInt ?: 0
+            val length = payload.get("length")?.asInt ?: 0
+            logger.warn("[MDT] Received suggest response: ${suggestions.size} items: $suggestions (start=$start, len=$length)")
+
+            if (suggestions.isNotEmpty()) {
+                javax.swing.SwingUtilities.invokeLater {
+                    consoleView.print("[补全] ${suggestions.joinToString(", ")}\n", ConsoleViewContentType.NORMAL_OUTPUT)
+                    currentPopup?.cancel()
+                    currentPopup = showCompletionPopup(commandField, suggestions) { selected ->
+                        val text = commandField.text
+                        val newText = text.substring(0, start.coerceIn(0, text.length)) +
+                                selected +
+                                text.substring((start + length).coerceIn(0, text.length))
+                        commandField.text = newText
+                        commandField.caretPosition = (start + selected.length).coerceIn(0, newText.length)
+                    }
+                }
+            }
+        }
+
+        dispatcher.onConsoleAppend { _, message ->
+            val payload = message.payload
+            if (payload.has("lines") && payload.get("lines").isJsonArray) {
+                for (element in payload.getAsJsonArray("lines")) {
+                    val obj = element.asJsonObject
+                    val level = if (obj.has("level")) obj.get("level").asString.uppercase() else "INFO"
+                    val msg = if (obj.has("message")) obj.get("message").asString else obj.toString()
+                    val contentType = when (level) {
+                        "ERROR" -> ConsoleViewContentType.ERROR_OUTPUT
+                        "WARN" -> ConsoleViewContentType.LOG_WARNING_OUTPUT
+                        else -> ConsoleViewContentType.NORMAL_OUTPUT
+                    }
+                    consoleView.print("[$level] $msg\n", contentType)
+                }
+            }
         }
 
         // Reusable connection helper for toolbar, status bar, and pending requests
         val performConnect: (String, Int, String) -> Unit = { host, port, token ->
             connectToServer(host, port, token, dispatcher, connectionState, serverInfo) {
                 serverTabs.value = emptyList()
-                selectedTabId.value = null
+                selectedTabId.value = "console"
                 renderTabs.value = emptyMap()
                 tabContents.values.forEach { it.dispose() }
                 tabContents.clear()
-                consoleService.clearAll()
             }
         }
 
@@ -156,12 +245,10 @@ class MyToolWindowFactory : ToolWindowFactory {
             when (message.type) {
                 MessageType.TAB_OPEN -> {
                     val descriptor = TabDescriptor.fromJson(message.payload)
+                    if (descriptor.id == "console") return@onTabChange
                     val current = serverTabs.value
                     if (current.none { it.id == descriptor.id }) {
                         serverTabs.value = (current + descriptor).sortedBy { it.order }
-                    }
-                    if (selectedTabId.value == null) {
-                        selectedTabId.value = descriptor.id
                     }
                 }
                 MessageType.TAB_CLOSE -> {
@@ -170,7 +257,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                     tabContents.remove(tabId)?.dispose()
                     renderTabs.value = renderTabs.value - tabId
                     if (selectedTabId.value == tabId) {
-                        selectedTabId.value = serverTabs.value.firstOrNull()?.id
+                        selectedTabId.value = "console"
                     }
                 }
                 MessageType.TAB_UPDATE -> {
@@ -187,11 +274,10 @@ class MyToolWindowFactory : ToolWindowFactory {
         dispatcher.onHello { message ->
             val tabsArr = message.payload.getAsJsonArray("tabs")
             if (tabsArr != null) {
-                val tabs = tabsArr.map { TabDescriptor.fromJson(it.asJsonObject) }.sortedBy { it.order }
+                val tabs = tabsArr.map { TabDescriptor.fromJson(it.asJsonObject) }
+                    .filter { it.id != "console" }
+                    .sortedBy { it.order }
                 serverTabs.value = tabs
-                if (tabs.isNotEmpty() && selectedTabId.value == null) {
-                    selectedTabId.value = tabs.first().id
-                }
             }
             val serverName = message.payload.get("serverName")?.asString
             val protocolVersion = message.payload.get("acceptedProtocol")?.asString
@@ -201,7 +287,10 @@ class MyToolWindowFactory : ToolWindowFactory {
             MDTConnectionState.getInstance().setServerInfo(info.name, info.protocolVersion)
         }
 
-        toolWindow.addComposeTab(MyMessageBundle.message("tab.game.manager")) {
+        toolWindow.addComposeTab(
+            tabDisplayName = MyMessageBundle.message("tab.game.manager"),
+            focusOnClickInside = false
+        ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Toolbar(
                     connectionState = connectionState.value,
@@ -214,11 +303,11 @@ class MyToolWindowFactory : ToolWindowFactory {
                         serverInfo.value = null
                         mdtConnectionState.reset()
                         serverTabs.value = emptyList()
-                        selectedTabId.value = null
+                        selectedTabId.value = "console"
                         renderTabs.value = emptyMap()
                         tabContents.values.forEach { it.dispose() }
                         tabContents.clear()
-                        consoleService.clearAll()
+                        consoleView.clear()
                     },
                     onOpenConnectDialog = {
                         val dialog = ConnectDialog(project)
@@ -250,11 +339,12 @@ class MyToolWindowFactory : ToolWindowFactory {
                     }
                     ConnectionState.CONNECTED -> {
                         ConnectedContent(
+                            project = project,
                             serverTabs = serverTabs.value,
                             selectedTabId = selectedTabId.value,
                             onTabSelect = { tabId -> selectedTabId.value = tabId },
                             renderTabs = renderTabs.value,
-                            consoleService = consoleService
+                            consolePanel = consolePanel
                         )
                     }
                 }
@@ -294,7 +384,7 @@ class MyToolWindowFactory : ToolWindowFactory {
 
 data class ServerInfo(val name: String, val protocolVersion: String)
 
-// ── Internal UI Components ──────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun Toolbar(
@@ -309,7 +399,6 @@ private fun Toolbar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left: connection actions
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             when (connectionState) {
                 ConnectionState.DISCONNECTED -> {
@@ -335,7 +424,6 @@ private fun Toolbar(
             }
         }
 
-        // Right: server status indicator
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -358,70 +446,64 @@ private fun Toolbar(
 
 @Composable
 private fun ConnectedContent(
+    project: Project,
     serverTabs: List<TabDescriptor>,
     selectedTabId: String?,
     onTabSelect: (String) -> Unit,
     renderTabs: Map<String, @Composable () -> Unit>,
-    consoleService: ConsoleService
+    consolePanel: JPanel
 ) {
-    if (serverTabs.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Text(
-                MyMessageBundle.message("connected.waiting"),
-                modifier = Modifier.align(Alignment.Center),
-                color = Color.Gray,
-                fontSize = 12.sp
-            )
-        }
-        return
-    }
+    val consoleTitle = MyMessageBundle.message("tab.console")
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Internal tab strip for server-driven tabs
-        if (serverTabs.size > 1) {
-            val selectedIndex = serverTabs.indexOfFirst { it.id == selectedTabId }
-                .coerceIn(0, serverTabs.lastIndex)
-
-            TabStrip(
-                tabs = serverTabs.map { tab ->
-                    TabData.Default(
-                        selected = tab.id == selectedTabId,
+        if (serverTabs.isNotEmpty()) {
+            val tabs = buildList {
+                add(TabData.Default(
+                    selected = selectedTabId == "console",
+                    content = { Text(consoleTitle) },
+                    closable = false,
+                    onClose = {},
+                    onClick = { onTabSelect("console") }
+                ))
+                serverTabs.forEach { tab ->
+                    add(TabData.Default(
+                        selected = selectedTabId == tab.id,
                         content = { Text(tab.title) },
                         closable = false,
                         onClose = {},
                         onClick = { onTabSelect(tab.id) }
-                    )
-                },
+                    ))
+                }
+            }
+            TabStrip(
+                tabs = tabs,
                 style = LocalDefaultTabStyle.current,
                 modifier = Modifier.fillMaxWidth()
             )
             Divider(orientation = Orientation.Horizontal)
         }
 
-        // Tab content area
-        val currentTabId = selectedTabId
-        if (currentTabId != null) {
-            val renderFn = renderTabs[currentTabId]
-            val isConsoleTab = currentTabId.equals("console", ignoreCase = true) ||
-                consoleService.hasEntries(currentTabId)
-
-            if (isConsoleTab) {
-                ConsoleTabContent(
-                    consoleService = consoleService,
-                    tabId = currentTabId
-                )
-            } else if (renderFn != null) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    renderFn()
-                }
-            } else {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Text(
-                        MyMessageBundle.message("loading.tab.content"),
-                        modifier = Modifier.align(Alignment.Center),
-                        color = Color.Gray,
-                        fontSize = 12.sp
+        // 内容区
+        Box(modifier = Modifier.fillMaxSize()) {
+            when (val currentTabId = selectedTabId) {
+                null, "console" -> {
+                    SwingPanel(
+                        factory = { consolePanel },
+                        modifier = Modifier.fillMaxSize()
                     )
+                }
+                else -> {
+                    val renderFn = renderTabs[currentTabId]
+                    if (renderFn != null) {
+                        renderFn()
+                    } else {
+                        Text(
+                            MyMessageBundle.message("loading.tab.content"),
+                            modifier = Modifier.align(Alignment.Center),
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }
@@ -456,130 +538,26 @@ private fun ReconnectingView() {
     }
 }
 
-// ── Console Tab ──────────────────────────────────────────────────
-
-private val LEVEL_COLORS = mapOf(
-    "INFO" to Color(0xFF4CAF50),
-    "WARN" to Color(0xFFFFC107),
-    "ERROR" to Color(0xFFF44336),
-    "DEBUG" to Color.Gray
-)
-
-private val LEVEL_FILTERS = listOf("ALL", "INFO", "WARN", "ERROR", "DEBUG")
-
-@Composable
-private fun ConsoleTabContent(
-    consoleService: ConsoleService,
-    tabId: String
-) {
-    var levelFilter by remember { mutableStateOf("ALL") }
-    val allEntries = consoleService.state.value[tabId] ?: emptyList()
-    val filteredEntries = if (levelFilter == "ALL") allEntries
-        else allEntries.filter { it.level.equals(levelFilter, ignoreCase = true) }
-
-    val scrollState = rememberScrollState()
-
-    // Auto-scroll to bottom when new entries arrive
-    LaunchedEffect(filteredEntries.size) {
-        if (filteredEntries.isNotEmpty()) {
-            scrollState.animateScrollTo(scrollState.maxValue)
+/**
+ * 展示补全建议下拉框。
+ */
+private fun showCompletionPopup(
+    field: JTextField,
+    suggestions: List<String>,
+    onSelect: (String) -> Unit
+): com.intellij.openapi.ui.popup.JBPopup {
+    val step = object : BaseListPopupStep<String>("补全", suggestions) {
+        override fun getTextFor(value: String): String = value
+        override fun onChosen(selectedValue: String?, finalChoice: Boolean): PopupStep<*>? {
+            if (selectedValue != null) {
+                onSelect(selectedValue)
+            }
+            return PopupStep.FINAL_CHOICE
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Filter row
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            LEVEL_FILTERS.forEach { level ->
-                val isSelected = levelFilter == level
-                if (isSelected) {
-                    DefaultButton(onClick = { levelFilter = level }) {
-                        Text(level, fontSize = 11.sp)
-                    }
-                } else {
-                    OutlinedButton(onClick = { levelFilter = level }) {
-                        Text(level, fontSize = 11.sp)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            OutlinedButton(onClick = { consoleService.clear(tabId) }) {
-                Text(MyMessageBundle.message("console.clear"), fontSize = 11.sp)
-            }
-        }
-
-        Divider(orientation = Orientation.Horizontal)
-
-        // Log list
-        if (filteredEntries.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    MyMessageBundle.message("console.no.entries"),
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
-            }
-        } else {
-            SelectionContainer {
-                Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
-                ) {
-                    filteredEntries.forEach { entry ->
-                        LogEntryRow(entry)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LogEntryRow(entry: ConsoleEntry) {
-    val levelColor = LEVEL_COLORS[entry.level] ?: Color.Gray
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Timestamp
-        Text(
-            text = entry.formattedTime,
-            fontSize = 11.sp,
-            color = Color.Gray,
-            fontFamily = FontFamily.Monospace
-        )
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // Level badge
-        Box(
-            modifier = Modifier
-                .background(levelColor.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
-                .padding(horizontal = 5.dp, vertical = 1.dp)
-        ) {
-            Text(
-                text = entry.level,
-                fontSize = 10.sp,
-                color = levelColor,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // Message
-        Text(
-            text = entry.message,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.weight(1f)
-        )
-    }
+    val popup = JBPopupFactory.getInstance().createListPopup(step)
+    popup.showUnderneathOf(field)
+    return popup
 }
 

@@ -166,6 +166,37 @@ public class Message {
         return msg;
     }
 
+    public static Message createCommandInput(String command) {
+        Message msg = new Message(MessageType.COMMAND_INPUT);
+        msg.payload.addProperty("command", command);
+        return msg;
+    }
+
+    public static Message createCommandTree(CommandTreeNode root) {
+        Message msg = new Message(MessageType.COMMAND_TREE);
+        msg.payload.add("tree", root.toJson());
+        return msg;
+    }
+
+    public static Message createCommandSuggestRequest(String command, int cursor) {
+        Message msg = new Message(MessageType.COMMAND_SUGGEST_REQUEST);
+        msg.payload.addProperty("command", command);
+        msg.payload.addProperty("cursor", cursor);
+        return msg;
+    }
+
+    public static Message createCommandSuggestResponse(java.util.List<String> suggestions, int start, int length) {
+        Message msg = new Message(MessageType.COMMAND_SUGGEST_RESPONSE);
+        com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+        if (suggestions != null) {
+            for (String s : suggestions) arr.add(s);
+        }
+        msg.payload.add("suggestions", arr);
+        msg.payload.addProperty("start", start);
+        msg.payload.addProperty("length", length);
+        return msg;
+    }
+
     public static Message createPing() {
         Message msg = new Message(MessageType.PING);
         msg.payload.addProperty("timestamp", System.currentTimeMillis());

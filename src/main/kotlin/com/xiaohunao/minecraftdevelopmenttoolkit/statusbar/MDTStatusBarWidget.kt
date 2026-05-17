@@ -18,20 +18,6 @@ import java.awt.event.MouseEvent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-// ── Widget ──────────────────────────────────────────────────────────────────
-
-/**
- * Status bar widget that displays the current MDT WebSocket connection state.
- *
- * Shows:
- * - "MDT: Disconnected"  (grey icon)
- * - "MDT: Connecting..." (yellow icon)
- * - "MDT: Connected (ServerName)" (green icon)
- * - "MDT: Reconnecting..." (orange icon)
- *
- * Clicking the widget opens the [ConnectDialog].
- * The widget listens to [MDTConnectionState] for real-time updates.
- */
 class MDTStatusBarWidget(private val project: Project) : StatusBarWidget, CustomStatusBarWidget {
 
     private var statusBar: StatusBar? = null
@@ -62,8 +48,6 @@ class MDTStatusBarWidget(private val project: Project) : StatusBarWidget, Custom
         updateWidget()
     }
 
-    // ---- StatusBarWidget ----
-
     override fun ID(): String = "MDTStatusBarWidget"
 
     override fun install(statusBar: StatusBar) {
@@ -77,11 +61,7 @@ class MDTStatusBarWidget(private val project: Project) : StatusBarWidget, Custom
         statusBar = null
     }
 
-    // ---- CustomStatusBarWidget ----
-
     override fun getComponent() = panel
-
-    // ---- Internal ----
 
     private fun updateWidget() {
         val state = stateService.connectionState
@@ -158,8 +138,6 @@ class MDTStatusBarWidget(private val project: Project) : StatusBarWidget, Custom
         }
     }
 }
-
-// ── Factory ─────────────────────────────────────────────────────────────────
 
 class MDTStatusBarWidgetFactory : StatusBarWidgetFactory {
     override fun getId() = "MDTStatusBarWidget"
