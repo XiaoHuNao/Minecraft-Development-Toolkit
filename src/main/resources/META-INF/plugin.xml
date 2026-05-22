@@ -31,5 +31,7 @@
                                implementation="com.xiaohunao.minecraftdevelopmenttoolkit.statusbar.MDTStatusBarWidgetFactory"
                                order="after NotificationWidget"/>
         <notificationGroup id="MDT Notifications" displayType="BALLOON"/>
+        <fileEditorProvider id="mdt-mc-resource-split-editor"
+                           implementation="com.xiaohunao.minecraftdevelopmenttoolkit.viewer.splitedit.MCResourceSplitEditorProvider"/>
     </extensions>
 </idea-plugin>

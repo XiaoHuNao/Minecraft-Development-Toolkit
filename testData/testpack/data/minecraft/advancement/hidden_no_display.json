@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "hidden_thing": {
+      "trigger": "minecraft:tick"
+    }
+  },
+  "requirements": [
+    ["hidden_thing"]
+  ]
+}
