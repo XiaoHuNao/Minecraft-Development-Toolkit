@@ -1,0 +1,22 @@
+{
+  "display": {
+    "icon": { "id": "minecraft:diamond" },
+    "title": { "translate": "advancements.story.mine_diamond.title" },
+    "description": { "translate": "advancements.story.mine_diamond.description" },
+    "frame": "challenge",
+    "hidden": false
+  },
+  "parent": "minecraft:story/iron_tools",
+  "criteria": {
+    "got_diamonds": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [{ "items": "minecraft:diamond" }]
+      }
+    }
+  },
+  "rewards": {
+    "experience": 100,
+    "recipes": ["minecraft:diamond_sword", "minecraft:diamond_pickaxe"]
+  }
+}

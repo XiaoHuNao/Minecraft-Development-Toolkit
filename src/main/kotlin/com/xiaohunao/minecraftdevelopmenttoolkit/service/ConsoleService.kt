@@ -1,6 +1,5 @@
 package com.xiaohunao.minecraftdevelopmenttoolkit.service
 
-import androidx.compose.runtime.mutableStateOf
 import com.google.gson.JsonObject
 import com.xiaohunao.mdt.protocol.Message
 import com.xiaohunao.minecraftdevelopmenttoolkit.settings.MDTSettings
@@ -25,67 +24,47 @@ class ConsoleService {
         get() = MDTSettings.getInstance().state.consoleBufferSize
 
     private val buffers = mutableMapOf<String, MutableList<ConsoleEntry>>()
-
-    val state = mutableStateOf<Map<String, List<ConsoleEntry>>>(emptyMap())
+    private var entries: Map<String, List<ConsoleEntry>> = emptyMap()
 
     fun appendLog(tabId: String, message: Message) {
         val payload = message.payload
-        val entries = mutableListOf<ConsoleEntry>()
+        val newEntries = mutableListOf<ConsoleEntry>()
 
-        // Format 1: {"lines": [{timestamp, level, message}, ...]} — from Message.createConsoleAppend
         if (payload.has("lines") && payload.get("lines").isJsonArray) {
             for (element in payload.getAsJsonArray("lines")) {
-                val obj = element.asJsonObject
-                entries.add(parseEntry(obj))
+                newEntries.add(parseEntry(element.asJsonObject))
             }
-        }
-        // Format 2: {"entries": [{timestamp, level, message}, ...]}
-        else if (payload.has("entries") && payload.get("entries").isJsonArray) {
+        } else if (payload.has("entries") && payload.get("entries").isJsonArray) {
             for (element in payload.getAsJsonArray("entries")) {
-                val obj = element.asJsonObject
-                entries.add(parseEntry(obj))
+                newEntries.add(parseEntry(element.asJsonObject))
             }
-        }
-        // Format 3: single entry at top level {timestamp, level, message}
-        else if (payload.has("level") && payload.has("message")) {
-            entries.add(parseEntry(payload))
+        } else if (payload.has("level") && payload.has("message")) {
+            newEntries.add(parseEntry(payload))
         }
 
-        if (entries.isEmpty()) return
+        if (newEntries.isEmpty()) return
 
         val buffer = buffers.getOrPut(tabId) { mutableListOf() }
-        buffer.addAll(entries)
+        buffer.addAll(newEntries)
 
-        // Trim to ring buffer size
         if (buffer.size > bufferSize) {
             val excess = buffer.size - bufferSize
             repeat(excess) { buffer.removeAt(0) }
         }
 
-        state.value = state.value + (tabId to buffer.toList())
+        entries = entries + (tabId to buffer.toList())
     }
 
-    fun getEntries(tabId: String, levelFilter: String? = null): List<ConsoleEntry> {
-        val entries = state.value[tabId] ?: return emptyList()
-        return if (levelFilter == null || levelFilter == "ALL") {
-            entries
-        } else {
-            entries.filter { it.level.equals(levelFilter, ignoreCase = true) }
-        }
-    }
-
-    fun hasEntries(tabId: String): Boolean {
-        return (state.value[tabId]?.size ?: 0) > 0
-    }
+    fun getEntries(tabId: String): List<ConsoleEntry> = entries[tabId] ?: emptyList()
 
     fun clear(tabId: String) {
         buffers[tabId]?.clear()
-        state.value = state.value + (tabId to emptyList())
+        entries = entries + (tabId to emptyList())
     }
 
     fun clearAll() {
         buffers.clear()
-        state.value = emptyMap()
+        entries = emptyMap()
     }
 
     private fun parseEntry(obj: JsonObject): ConsoleEntry {

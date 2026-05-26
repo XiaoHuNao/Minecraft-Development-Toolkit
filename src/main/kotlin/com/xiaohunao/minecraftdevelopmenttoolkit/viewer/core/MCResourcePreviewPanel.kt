@@ -37,6 +37,7 @@ class MCResourcePreviewPanel(
     private val onStateChanged: (PreviewState) -> Unit
 ) {
     private var editor: Editor? = null
+    val currentEditor: Editor? get() = editor
     private var debounceFuture: ScheduledFuture<*>? = null
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
 
@@ -95,12 +96,6 @@ class MCResourcePreviewPanel(
         val type = MCResourceType.detect(file)
         if (type == null) {
             onStateChanged(PreviewState.NotADatapack)
-            return
-        }
-
-        val viewer = MCResourceViewer.getViewer(type)
-        if (viewer == null && type != MCResourceType.UNKNOWN) {
-            onStateChanged(PreviewState.UnsupportedType(type))
             return
         }
 

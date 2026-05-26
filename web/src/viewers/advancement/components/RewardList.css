@@ -1,0 +1,8 @@
+.reward-list {
+  background: var(--mdt-card-bg);
+  border: 1px solid var(--mdt-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.reward-list__title { font-size: 12px; font-weight: 600; color: var(--mdt-fg); margin: 0 0 8px; }
+.reward-item { font-size: 12px; color: var(--mdt-muted); padding: 2px 0; }

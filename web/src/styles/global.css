@@ -1,0 +1,50 @@
+:root {
+  --mdt-bg: #ffffff;
+  --mdt-fg: #2c2c2c;
+  --mdt-border: #e0e0e0;
+  --mdt-accent: #4a90d9;
+  --mdt-card-bg: #f5f5f5;
+  --mdt-card-hover: #eeeeee;
+  --mdt-muted: #999999;
+  --mdt-error: #c62828;
+}
+
+[data-theme='dark'] {
+  --mdt-bg: #2b2b2b;
+  --mdt-fg: #d4d4d4;
+  --mdt-border: #3c3c3c;
+  --mdt-accent: #589df6;
+  --mdt-card-bg: #333333;
+  --mdt-card-hover: #3a3a3a;
+  --mdt-muted: #777777;
+  --mdt-error: #ef5350;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+}
+
+body {
+  font-family: -apple-system, 'Segoe UI', Inter, sans-serif;
+  font-size: 13px;
+  color: var(--mdt-fg);
+  background: var(--mdt-bg);
+  line-height: 1.5;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--mdt-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--mdt-muted); }
+
+code, pre {
+  font-family: 'JetBrains Mono', Consolas, 'Fira Code', monospace;
+}

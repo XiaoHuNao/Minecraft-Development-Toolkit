@@ -1,0 +1,45 @@
+.advancement-viewer {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.advancement-card {
+  background: var(--mdt-card-bg);
+  border: 1px solid var(--mdt-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: background 0.15s;
+}
+.advancement-card:hover { background: var(--mdt-card-hover); }
+.advancement-card--challenge { border-left: 3px solid var(--mdt-accent); }
+.advancement-card--goal { border-left: 3px solid #66bb6a; }
+.advancement-card--task { border-left: 3px solid var(--mdt-border); }
+
+.advancement-card__header { display: flex; align-items: center; gap: 12px; }
+.advancement-card__icon {
+  width: 32px; height: 32px; border-radius: 4px;
+  background: var(--mdt-bg); display: flex; align-items: center;
+  justify-content: center; font-size: 10px; color: var(--mdt-muted); overflow: hidden;
+}
+.advancement-card__icon-text {
+  font-size: 9px; white-space: nowrap; text-overflow: ellipsis;
+  overflow: hidden; max-width: 28px;
+}
+.advancement-card__info { flex: 1; min-width: 0; }
+.advancement-card__title {
+  font-size: 14px; font-weight: 600; color: var(--mdt-fg);
+  margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.advancement-card__desc {
+  font-size: 12px; color: var(--mdt-muted);
+  margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.advancement-card__frame {
+  font-size: 11px; color: var(--mdt-muted);
+  padding: 2px 8px; border-radius: 4px; background: var(--mdt-bg);
+}
+.advancement-card__meta { margin-top: 8px; display: flex; gap: 12px; font-size: 11px; color: var(--mdt-muted); }
+.advancement-card__parent { opacity: 0.8; }
+.advancement-card__hidden { color: var(--mdt-accent); opacity: 0.8; }

@@ -10,7 +10,6 @@ import com.intellij.ui.jcef.JBCefBrowser
 import java.beans.PropertyChangeListener
 import java.beans.PropertyChangeSupport
 import javax.swing.JComponent
-import javax.swing.SwingUtilities
 
 class MCResourcePreviewEditor(
     private val project: Project,
@@ -19,19 +18,45 @@ class MCResourcePreviewEditor(
 
     private val userDataHolder = UserDataHolderBase()
     private val changeSupport = PropertyChangeSupport(this)
+    private val browser = JBCefBrowser()
+
+    private val bridge = JcefBridgeHandler(browser) { type, payload ->
+        when (type) {
+            "VIEWER_READY" -> pushCurrentDocument()
+            "TOGGLE_RAW_JSON" -> {
+                showRawJson = !showRawJson
+            }
+        }
+    }
+
     private var showRawJson = false
-    private val httpPort: Int
-
-    init {
-        httpPort = PreviewHttpServer.start()
-    }
-
-    private val browser = JBCefBrowser().apply {
-        loadHTML(placeholderHtml("正在连接编辑器..."))
-    }
 
     private val panel = MCResourcePreviewPanel(file) { state ->
-        SwingUtilities.invokeLater { updateBrowser(state) }
+        when (state) {
+            is PreviewState.Ready -> {
+                bridge.pushDocumentUpdate(
+                    state.rawText,
+                    file.path,
+                    state.type.name
+                )
+            }
+            is PreviewState.JsonError -> {
+                bridge.pushDocumentUpdate("", file.path, null)
+            }
+            is PreviewState.NotADatapack -> {
+                bridge.pushDocumentUpdate("", file.path, null)
+            }
+            is PreviewState.UnsupportedType -> {
+                bridge.pushDocumentUpdate("", file.path, state.type.name)
+            }
+            is PreviewState.WaitingForEditor -> {}
+        }
+    }
+
+    init {
+        val url = resolveViewerUrl()
+        browser.loadURL(url)
+        pushThemeColors()
     }
 
     fun bindEditor(editor: Editor) {
@@ -42,29 +67,26 @@ class MCResourcePreviewEditor(
         panel.unbindEditor()
     }
 
-    private fun updateBrowser(state: PreviewState) {
-        val html = when (state) {
-            is PreviewState.WaitingForEditor -> placeholderHtml("正在连接编辑器...")
-            is PreviewState.NotADatapack -> placeholderHtml(
-                "此文件不在数据包目录中",
-                "文件路径需包含 <code>data/&lt;namespace&gt;/&lt;type&gt;/...</code>"
-            )
-            is PreviewState.JsonError -> errorHtml(state.message)
-            is PreviewState.UnsupportedType -> placeholderHtml(
-                "「${state.type.displayName}」暂无可视化支持",
-                "已注册类型: ${MCResourceViewer.registeredTypes().joinToString { it.displayName }}"
-            )
-            is PreviewState.Ready -> {
-                if (showRawJson) rawJsonHtml(state.rawText)
-                else {
-                    val viewer = MCResourceViewer.getViewer(state.type)
-                    viewer?.buildHtml(state.json, state.rawText, file.name)
-                        ?: placeholderHtml("Viewer 未注册: ${state.type.displayName}")
-                }
-            }
-        }
-        browser.loadHTML(html)
-        PreviewHttpServer.updateHtml(html)
+    private fun pushCurrentDocument() {
+        val editor = panel.currentEditor ?: return
+        val text = editor.document.text
+        if (text.isBlank()) return
+        val type = MCResourceType.detect(file)
+        bridge.pushDocumentUpdate(text, file.path, type?.name)
+    }
+
+    private fun pushThemeColors() {
+        val bg = javax.swing.UIManager.getColor("EditorPane.background") ?: java.awt.Color.WHITE
+        val fg = javax.swing.UIManager.getColor("EditorPane.foreground") ?: java.awt.Color(0x2c, 0x2c, 0x2c)
+        val border = javax.swing.UIManager.getColor("Separator.foreground") ?: java.awt.Color(0xe0, 0xe0, 0xe0)
+        val accent = javax.swing.UIManager.getColor("Link.activeForeground") ?: java.awt.Color(0x4a, 0x90, 0xd9)
+        val cardBg = javax.swing.UIManager.getColor("Panel.background") ?: java.awt.Color(0xf5, 0xf5, 0xf5)
+        fun hex(c: java.awt.Color) = "#%02x%02x%02x".format(c.red, c.green, c.blue)
+        bridge.pushTheme(mapOf(
+            "bg" to hex(bg), "fg" to hex(fg), "border" to hex(border),
+            "accent" to hex(accent), "cardBg" to hex(cardBg),
+            "cardHover" to hex(cardBg), "muted" to "#999999", "error" to "#c62828"
+        ))
     }
 
     fun toggleRawJson() {
@@ -72,16 +94,12 @@ class MCResourcePreviewEditor(
         panel.toggleRawJson()
     }
 
-    // ── UserDataHolder ──────────────────────────────
-
     override fun <T : Any> getUserData(key: Key<T>): T? = userDataHolder.getUserData(key)
     override fun <T : Any> putUserData(key: Key<T>, value: T?) = userDataHolder.putUserData(key, value)
 
-    // ── FileEditor ──────────────────────────────────
-
     override fun getComponent(): JComponent = browser.component
     override fun getPreferredFocusedComponent(): JComponent? = browser.component
-    override fun getName(): String = "MC 资源预览 (http://localhost:$httpPort/)"
+    override fun getName(): String = "MC 资源预览"
     override fun getFile(): VirtualFile = file
 
     override fun setState(state: FileEditorState) {
@@ -107,60 +125,17 @@ class MCResourcePreviewEditor(
 
     override fun dispose() {
         unbindEditor()
+        bridge.dispose()
         browser.dispose()
     }
 
-    // ── HTML 模板 ───────────────────────────────────
-
     companion object {
-        /** 从当前 IDE 主题读取颜色 */
-        private fun themeColors(): String {
-            val bg = javax.swing.UIManager.getColor("EditorPane.background")
-                ?: java.awt.Color.WHITE
-            val fg = javax.swing.UIManager.getColor("EditorPane.foreground")
-                ?: java.awt.Color(0x2c, 0x2c, 0x2c)
-            val border = javax.swing.UIManager.getColor("Separator.foreground")
-                ?: java.awt.Color(0xe0, 0xe0, 0xe0)
-            val accent = javax.swing.UIManager.getColor("Link.activeForeground")
-                ?: java.awt.Color(0x4a, 0x90, 0xd9)
-            fun hex(c: java.awt.Color) =
-                "#%02x%02x%02x".format(c.red, c.green, c.blue)
-            return "--bg:${hex(bg)};--fg:${hex(fg)};--border:${hex(border)};--accent:${hex(accent)}"
+        private const val DEV_URL = "http://localhost:5173?mode=viewer"
+
+        private fun resolveViewerUrl(): String {
+            if (System.getProperty("mdt.dev") == "true") return DEV_URL
+            return WebDevServer.getUrl("viewer") ?: DEV_URL
         }
-
-        private fun baseHtml(body: String): String = """
-            <!DOCTYPE html><html><head><meta charset='UTF-8'>
-            <style>
-              :root{${themeColors()}}
-              body{font-family:-apple-system,'Segoe UI',sans-serif;margin:0;padding:16px;
-                   color:var(--fg);background:var(--bg)}
-              .center{display:flex;flex-direction:column;align-items:center;
-                      justify-content:center;height:100vh;text-align:center}
-              .center h2{font-size:15px;color:var(--fg);opacity:0.6;font-weight:400;margin:0}
-              .center p{font-size:12px;color:var(--fg);opacity:0.4;margin-top:8px}
-              .error{color:#c62828;background:#ffebee;border:1px solid #ef9a9a;
-                     border-radius:8px;padding:16px;font-size:12px}
-              .error h3{font-size:14px;margin:0 0 8px}
-              .error pre{margin:0;font-family:'JetBrains Mono','Consolas',monospace;
-                         font-size:11px;white-space:pre-wrap}
-              pre.raw{font-family:'JetBrains Mono','Consolas',monospace;font-size:11px;
-                      white-space:pre-wrap;margin:0;padding:12px;color:#333}
-            </style></head><body>$body</body></html>
-        """.trimIndent()
-
-        fun placeholderHtml(title: String, subtitle: String? = null): String = baseHtml(
-            "<div class='center'><h2>$title</h2>" +
-            (subtitle?.let { "<p>$it</p>" } ?: "") +
-            "</div>"
-        )
-
-        fun errorHtml(message: String): String = baseHtml(
-            "<div class='error'><h3>JSON 解析错误</h3><pre>$message</pre></div>"
-        )
-
-        fun rawJsonHtml(text: String): String = baseHtml(
-            "<pre class='raw'>${text.replace("&", "&amp;").replace("<", "&lt;")}</pre>"
-        )
     }
 }
 

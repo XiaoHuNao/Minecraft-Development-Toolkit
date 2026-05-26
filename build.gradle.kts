@@ -2,7 +2,6 @@ plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.20"
     id("org.jetbrains.intellij.platform") version "2.10.2"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
 }
 
 group = "com.xiaohunao"
@@ -20,10 +19,6 @@ dependencies {
     intellijPlatform {
         intellijIdea("2025.2.4")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
-
-        // Add plugin dependencies for compilation here:
-
-        composeUI()
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
@@ -46,6 +41,25 @@ intellijPlatform {
     }
 }
 
+val buildWeb by tasks.registering(Exec::class) {
+    workingDir = file("web")
+    if (System.getProperty("os.name").lowercase().contains("win")) {
+        commandLine("cmd", "/c", "npm", "run", "build")
+    } else {
+        commandLine("npm", "run", "build")
+    }
+    inputs.dir("web/src")
+    inputs.file("web/package.json")
+    inputs.file("web/vite.config.ts")
+    outputs.dir("web/dist")
+}
+
+val copyWebDist by tasks.registering(Copy::class) {
+    dependsOn(buildWeb)
+    from("web/dist")
+    into(layout.buildDirectory.dir("resources/main/web"))
+}
+
 tasks {
     // Set the JVM compatibility versions
     withType<JavaCompile> {
@@ -57,6 +71,21 @@ tasks {
     // and is only needed for plugin marketplace search indexing, not for development.
     withType<org.jetbrains.intellij.platform.gradle.tasks.BuildSearchableOptionsTask> {
         enabled = false
+    }
+
+    withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareJarSearchableOptionsTask> {
+        enabled = false
+    }
+
+    named("processResources") {
+        dependsOn(copyWebDist)
+    }
+
+    named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
+        val devMode = providers.gradleProperty("mdt.dev").isPresent
+        jvmArgumentProviders.add(CommandLineArgumentProvider {
+            if (devMode) listOf("-Dmdt.dev=true") else emptyList()
+        })
     }
 }
 
