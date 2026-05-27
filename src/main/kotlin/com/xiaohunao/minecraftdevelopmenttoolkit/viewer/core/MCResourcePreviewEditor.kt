@@ -1,5 +1,7 @@
 package com.xiaohunao.minecraftdevelopmenttoolkit.viewer.core
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.project.Project
@@ -34,11 +36,15 @@ class MCResourcePreviewEditor(
     private val panel = MCResourcePreviewPanel(file) { state ->
         when (state) {
             is PreviewState.Ready -> {
-                bridge.pushDocumentUpdate(
-                    state.rawText,
-                    file.path,
-                    state.type.name
-                )
+                if (state.type == MCResourceType.ADVANCEMENT) {
+                    pushAdvancementTree(state.rawText)
+                } else {
+                    bridge.pushDocumentUpdate(
+                        state.rawText,
+                        file.path,
+                        state.type.name
+                    )
+                }
             }
             is PreviewState.JsonError -> {
                 bridge.pushDocumentUpdate("", file.path, null)
@@ -72,7 +78,77 @@ class MCResourcePreviewEditor(
         val text = editor.document.text
         if (text.isBlank()) return
         val type = MCResourceType.detect(file)
-        bridge.pushDocumentUpdate(text, file.path, type?.name)
+        if (type == MCResourceType.ADVANCEMENT) {
+            pushAdvancementTree(text)
+        } else {
+            bridge.pushDocumentUpdate(text, file.path, type?.name)
+        }
+    }
+
+    private fun pushAdvancementTree(currentFileText: String) {
+        val result = MCResourceType.resolveTypeRoot(file) ?: run {
+            bridge.pushDocumentUpdate(currentFileText, file.path, "ADVANCEMENT")
+            return
+        }
+        val (namespace, typeRoot) = result
+
+        val subTreeRoot = findSubTreeRoot(file, typeRoot) ?: run {
+            bridge.pushDocumentUpdate(currentFileText, file.path, "ADVANCEMENT")
+            return
+        }
+
+        val subPath = buildRelativePath(subTreeRoot, typeRoot)
+        val advancements = JsonObject()
+        collectJsonFiles(subTreeRoot, namespace, subPath, advancements, currentFileText)
+
+        val wrapper = JsonObject().apply {
+            add("advancements", advancements)
+        }
+        bridge.pushDocumentUpdate(wrapper.toString(), file.path, "ADVANCEMENT_TREE")
+    }
+
+    private fun findSubTreeRoot(file: VirtualFile, typeRoot: VirtualFile): VirtualFile? {
+        var dir = file.parent ?: return null
+        while (dir != typeRoot && dir.parent != typeRoot) {
+            dir = dir.parent ?: return null
+        }
+        if (dir == typeRoot) return null
+        return dir
+    }
+
+    private fun buildRelativePath(dir: VirtualFile, typeRoot: VirtualFile): String {
+        val parts = mutableListOf<String>()
+        var current = dir
+        while (current != typeRoot) {
+            parts.add(0, current.name)
+            current = current.parent ?: break
+        }
+        return parts.joinToString("/")
+    }
+
+    private fun collectJsonFiles(
+        dir: VirtualFile,
+        namespace: String,
+        prefix: String,
+        out: JsonObject,
+        currentFileText: String
+    ) {
+        for (child in dir.children) {
+            if (child.isDirectory) {
+                val nextPrefix = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                collectJsonFiles(child, namespace, nextPrefix, out, currentFileText)
+            } else if (child.extension == "json") {
+                val subPath = if (prefix.isEmpty()) child.nameWithoutExtension
+                    else "$prefix/${child.nameWithoutExtension}"
+                val resourceId = "$namespace:$subPath"
+                val text = if (child.path == file.path) currentFileText
+                    else String(child.contentsToByteArray(), Charsets.UTF_8)
+                try {
+                    val json = JsonParser.parseString(text)?.asJsonObject ?: continue
+                    out.add(resourceId, json)
+                } catch (_: Exception) { }
+            }
+        }
     }
 
     private fun pushThemeColors() {

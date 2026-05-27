@@ -1,0 +1,147 @@
+.advancement-tree {
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.advancement-tree ul {
+  list-style: none;
+  padding-left: 32px;
+  position: relative;
+}
+
+.advancement-tree > ul {
+  padding-left: 0;
+}
+
+.advancement-tree li {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  position: relative;
+  padding: 4px 0;
+}
+
+/* 垂直连接线 */
+.advancement-tree ul:not(:first-child) > li::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--mdt-border);
+}
+
+.advancement-tree ul:not(:first-child) > li:first-child::before {
+  top: 50%;
+}
+
+.advancement-tree ul:not(:first-child) > li:last-child::before {
+  bottom: 50%;
+}
+
+.advancement-tree ul:not(:first-child) > li:only-child::before {
+  display: none;
+}
+
+/* 水平连接线 - 从节点向左延伸 */
+.advancement-tree ul:not(:first-child) > li > .tree-node::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 50%;
+  width: 16px;
+  border-top: 1px solid var(--mdt-border);
+}
+
+/* 父节点向右延伸的水平线 */
+.advancement-tree li:has(> ul)::after {
+  content: '';
+  position: absolute;
+  left: calc(50px + 4px);
+  top: 50%;
+  width: 16px;
+  border-top: 1px solid var(--mdt-border);
+}
+
+/* 节点容器 */
+.tree-node {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mdt-card-bg);
+  border: 1px solid var(--mdt-border);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tree-node--task {
+  background-image: url('../assets/task.png');
+  background-size: cover;
+  border: none;
+}
+
+.tree-node--goal {
+  background-image: url('../assets/goal.png');
+  background-size: cover;
+  border: none;
+}
+
+.tree-node--challenge {
+  background-image: url('../assets/challenge.png');
+  background-size: cover;
+  border: none;
+}
+
+/* 物品图标占位 */
+.tree-node__icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--mdt-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tooltip */
+.tree-node__tooltip {
+  display: none;
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(16, 0, 16, 0.94);
+  border-radius: 4px;
+  padding: 8px 12px;
+  box-shadow: 0 0 0 2px #28007a, 0 0 8px rgba(80, 0, 200, 0.4);
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.tree-node:hover > .tree-node__tooltip {
+  display: block;
+}
+
+.tree-node__tooltip-title {
+  color: #fddd9b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tree-node__tooltip-desc {
+  color: #aaa;
+  font-size: 11px;
+  margin-top: 2px;
+}

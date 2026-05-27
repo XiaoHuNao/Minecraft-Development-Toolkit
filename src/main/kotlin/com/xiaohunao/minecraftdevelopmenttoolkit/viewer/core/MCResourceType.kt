@@ -89,6 +89,30 @@ enum class MCResourceType(
         }
 
         /**
+         * 从文件路径中提取命名空间和类型目录的根 VirtualFile。
+         * 返回 (namespace, typeRootDir) 或 null。
+         */
+        fun resolveTypeRoot(file: VirtualFile): Pair<String, VirtualFile>? {
+            val path = file.path.replace('\\', '/')
+            val dataIndex = path.indexOf("/data/")
+            if (dataIndex < 0) return null
+
+            val afterData = path.substring(dataIndex + "/data/".length)
+            val segments = afterData.split("/")
+            if (segments.size < 3) return null
+
+            val namespace = segments[0]
+            val typeFolder = segments[1]
+
+            var dir = file
+            val depth = segments.size - 2
+            repeat(depth) { dir = dir.parent ?: return null }
+
+            if (dir.name != typeFolder) return null
+            return namespace to dir
+        }
+
+        /**
          * 尝试将 JSON 字符串解析为 JsonObject。
          * 返回 null 表示 JSON 无效。
          */
